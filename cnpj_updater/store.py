@@ -160,20 +160,44 @@ class Store:
         self.con.commit()
 
     def registrar_falha(self, cnpj: str, erro: str, definitivo: bool = False,
-                        campo: str = "dados") -> None:
+                        campo: str = "dados",
+                        contar_tentativa: bool = True) -> None:
+        """Registra falha. `contar_tentativa=False` para estouro de limite,
+        que e' condicao passageira e nao deve gastar o orcamento de retentativas.
+        """
+        passo = 1 if contar_tentativa else 0
         if campo == "email":
             self.con.execute(
-                "UPDATE empresas SET tentativas_email = tentativas_email + 1,"
+                "UPDATE empresas SET tentativas_email = tentativas_email + ?,"
                 " status_email = ?, atualizado_em=? WHERE cnpj=?",
-                ("erro" if not definitivo else "vazio", _agora(), cnpj),
+                (passo, "vazio" if definitivo else "erro", _agora(), cnpj),
             )
         else:
             self.con.execute(
-                "UPDATE empresas SET tentativas = tentativas + 1,"
+                "UPDATE empresas SET tentativas = tentativas + ?,"
                 " status = ?, erro = ?, atualizado_em=? WHERE cnpj=?",
-                ("nao_encontrado" if definitivo else "erro", erro, _agora(), cnpj),
+                (passo, "nao_encontrado" if definitivo else "erro", erro,
+                 _agora(), cnpj),
             )
         self.con.commit()
+
+    def reabrir_erros(self) -> int:
+        """Zera o contador de tentativas das linhas que pararam em erro.
+
+        Necessario para retomar CNPJ abandonado por falha passageira, cujo
+        orcamento de tentativas ja foi consumido.
+        """
+        cur = self.con.execute(
+            "UPDATE empresas SET tentativas = 0 WHERE status = 'erro'"
+        )
+        n = cur.rowcount
+        cur = self.con.execute(
+            "UPDATE empresas SET tentativas_email = 0, status_email = 'pendente'"
+            " WHERE status_email = 'erro'"
+        )
+        n += cur.rowcount
+        self.con.commit()
+        return n
 
     # -- leitura ----------------------------------------------------------
 

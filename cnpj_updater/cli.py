@@ -76,6 +76,9 @@ def cmd_rodar(args) -> int:
     cfg, store = _abrir(args)
     if args.sem_email:
         cfg.buscar_email = False
+    if args.reprocessar_erros:
+        n = store.reabrir_erros()
+        print(f"  {n} linhas em erro reabertas para nova tentativa")
     resumo = store.resumo(cfg.email_somente_situacoes, cfg.max_tentativas)
     if resumo["total"] == 0:
         print("Fila vazia. Rode 'importar' primeiro.")
@@ -154,6 +157,9 @@ def main(argv=None) -> int:
     r = sub.add_parser("rodar", help="consulta as APIs (interrompivel/retomavel)")
     r.add_argument("--sem-email", action="store_true",
                    help="so a fase 1; nao gasta as APIs lentas com e-mail")
+    r.add_argument("--reprocessar-erros", action="store_true",
+                   help="zera o contador das linhas que pararam em erro e "
+                        "tenta de novo")
     sub.add_parser("exportar", help="grava a planilha de saida")
     sub.add_parser("status", help="resumo do que ja foi coletado")
 

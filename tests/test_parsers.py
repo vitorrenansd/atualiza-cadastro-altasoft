@@ -242,6 +242,57 @@ class TestComparacaoContato(unittest.TestCase):
         self.assertEqual(v(["'4830351244"], "", ""), "só na planilha")
 
 
+class TestOrcamentoDeTentativas(unittest.TestCase):
+    """Estouro de limite nao pode gastar o orcamento reservado a erro real."""
+
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+        from cnpj_updater.store import Store
+        self.dir = tempfile.TemporaryDirectory()
+        self.store = Store(Path(self.dir.name) / "t.sqlite3")
+        self.store.inserir_pendentes(["33000167000101"])
+
+    def tearDown(self):
+        self.store.fechar()
+        self.dir.cleanup()
+
+    def _tentativas(self):
+        return self.store.con.execute(
+            "SELECT tentativas FROM empresas WHERE cnpj='33000167000101'"
+        ).fetchone()["tentativas"]
+
+    def test_limite_nao_conta_tentativa(self):
+        for _ in range(10):
+            self.store.registrar_falha("33000167000101", "limite excedido",
+                                       contar_tentativa=False)
+        self.assertEqual(self._tentativas(), 0)
+        # E o CNPJ continua na fila, em vez de ser abandonado.
+        self.assertIn("33000167000101", self.store.pendentes(4))
+
+    def test_erro_real_conta_tentativa(self):
+        for _ in range(4):
+            self.store.registrar_falha("33000167000101", "resposta nao-JSON")
+        self.assertEqual(self._tentativas(), 4)
+        self.assertNotIn("33000167000101", self.store.pendentes(4))
+
+    def test_reabrir_erros_devolve_a_fila(self):
+        for _ in range(4):
+            self.store.registrar_falha("33000167000101", "erro qualquer")
+        self.assertEqual(self.store.pendentes(4), [])
+        self.assertEqual(self.store.reabrir_erros(), 1)
+        self.assertIn("33000167000101", self.store.pendentes(4))
+
+
+class TestFalha(unittest.TestCase):
+    def test_so_limite(self):
+        from cnpj_updater.worker import Falha
+        self.assertTrue(Falha("x", so_limite=True).so_limite)
+        # Dois "nao encontrado" independentes = ausencia real na Receita.
+        self.assertTrue(Falha("x", nao_encontrado=2).definitivo)
+        self.assertFalse(Falha("x", nao_encontrado=1).definitivo)
+
+
 class TestLimitador(unittest.TestCase):
     def test_balde_comeca_cheio(self):
         lim = Limitador("x", rpm=3)

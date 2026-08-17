@@ -18,6 +18,7 @@ gasta consulta repetida.
 
 import signal
 import time
+from dataclasses import dataclass
 
 import requests
 
@@ -28,6 +29,20 @@ from .ratelimit import Limitador
 from .store import Store
 
 UA = "atualiza-cadastro-altasoft/0.1 (uso interno; contato: ti@altasoft.com.br)"
+
+
+@dataclass
+class Falha:
+    """Por que nenhum provedor respondeu por este CNPJ."""
+
+    erro: str
+    nao_encontrado: int = 0
+    so_limite: bool = False
+
+    @property
+    def definitivo(self) -> bool:
+        """Dois provedores independentes negando: e' ausencia real na Receita."""
+        return self.nao_encontrado >= 2
 
 
 class Worker:
@@ -84,10 +99,12 @@ class Worker:
     def _tentar(self, cnpj: str, ordenados: list[Provedor]):
         """Percorre provedores livres ate um responder.
 
-        Devolve (provedor, Dados) no sucesso, ou (None, (erro, n_nao_encontrado)).
+        Devolve (provedor, Dados) no sucesso, ou (None, Falha).
         """
         ultimo_erro = None
         nao_encontrado = 0
+        limites = 0
+        outros = 0
         for prov in ordenados:
             lim = self.limitadores[prov.nome]
             if not lim.disponivel():
@@ -101,6 +118,7 @@ class Worker:
                 espera = lim.penalizar(e.retry_after)
                 print(f"  [{prov.nome}] limite excedido, pausando {espera:.0f}s")
                 ultimo_erro = str(e)
+                limites += 1
             except NaoEncontrado as e:
                 # Nao e culpa do provedor: nao penaliza a vazao dele.
                 lim.premiar()
@@ -110,7 +128,15 @@ class Worker:
                 lim.penalizar()
                 print(f"  [{prov.nome}] falhou: {e}")
                 ultimo_erro = str(e)
-        return None, (ultimo_erro, nao_encontrado)
+                outros += 1
+        return None, Falha(
+            erro=ultimo_erro or "sem provedor disponivel",
+            nao_encontrado=nao_encontrado,
+            # Estouro de limite e' condicao passageira, nao problema do CNPJ.
+            # Contar isso como tentativa gasta o orcamento reservado a erro
+            # real e abandona o CNPJ por um motivo que nao e' dele.
+            so_limite=limites > 0 and outros == 0 and nao_encontrado == 0,
+        )
 
     # -- fases -------------------------------------------------------------
 
@@ -139,12 +165,11 @@ class Worker:
                     feitos += 1
                     self._progresso(cnpj, dados, prov.nome, feitos, inicio)
                 else:
-                    erro, n_nao_encontrado = resultado
-                    # Dois provedores independentes negando: e ausencia real
-                    # na base da Receita, nao instabilidade.
-                    definitivo = n_nao_encontrado >= 2
-                    self.store.registrar_falha(cnpj, erro or "sem provedor",
-                                               definitivo)
+                    falha: Falha = resultado
+                    self.store.registrar_falha(
+                        cnpj, falha.erro, definitivo=falha.definitivo,
+                        contar_tentativa=not falha.so_limite,
+                    )
         print(f"\n  fase 1: {feitos} consultas concluidas nesta execucao")
 
     def rodar_fase2(self) -> None:
@@ -182,10 +207,10 @@ class Worker:
                     marca = dados.email or "(sem e-mail na Receita)"
                     print(f"  [{feitos}] {cnpj} {marca}  <{prov.nome}>")
                 else:
-                    erro, n_nao_encontrado = resultado
+                    falha: Falha = resultado
                     self.store.registrar_falha(
-                        cnpj, erro or "sem provedor",
-                        definitivo=n_nao_encontrado >= 2, campo="email",
+                        cnpj, falha.erro, definitivo=falha.definitivo,
+                        campo="email", contar_tentativa=not falha.so_limite,
                     )
         print(f"\n  fase 2: {feitos} consultas de e-mail nesta execucao")
 
