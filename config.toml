@@ -1,0 +1,69 @@
+## Configuracao do atualizador de cadastro.
+## Ajuste os caminhos e a leitura da planilha; o resto tem default sensato.
+
+[planilha]
+# Arquivo de entrada (nunca e modificado).
+entrada = "dados/RelacaoClientesMatConst.xlsx"
+# Arquivo gerado pelo export.
+saida = "dados/RelacaoClientesMatConst_atualizado.xlsx"
+# Aba a ler. Vazio = primeira aba da pasta de trabalho.
+aba = "Planilha1"
+# Linha onde estao os cabecalhos (1 = primeira linha).
+linha_cabecalho = 1
+# Nome do cabecalho da coluna de CNPJ. Vazio = autodetecta procurando
+# um cabecalho que contenha "cnpj" ou "inscri"; se nao achar, procura a
+# coluna cujos valores mais se parecem com CNPJ.
+coluna_cnpj = "Inscrição"
+# Gera uma aba extra so com as empresas ATIVAS.
+aba_somente_ativas = true
+
+# Compara o contato que a planilha ja tem com o da Receita e gera colunas
+# de veredito (igual / divergente / so na Receita / so na planilha).
+# Nada e sobrescrito: as colunas novas vao sempre no fim.
+comparar_contato = true
+coluna_email_atual = "E-Mail"
+colunas_telefone_atuais = ["Comercial", "Celular", "Residencial", "Outros"]
+
+[banco]
+caminho = "dados/consultas.sqlite3"
+
+[worker]
+# Tentativas por CNPJ antes de marcar como erro definitivo.
+max_tentativas = 4
+# Segundos de espera base ao tomar 429/erro (cresce exponencialmente).
+cooldown_base = 60
+# Timeout de cada requisicao HTTP, em segundos.
+timeout = 20
+# Fase 2: buscar e-mail nas APIs lentas. Se false, so roda a fase 1.
+buscar_email = true
+# Fase 2 so consulta empresas nessas situacoes (economiza as APIs lentas).
+email_somente_situacoes = ["Ativa"]
+
+## Provedores. Ordem = prioridade dentro de cada fase.
+## rpm = requisicoes por minuto que o limitador vai respeitar.
+## Deixe rpm conservador: sao APIs publicas e gratuitas.
+
+[[provedores]]
+nome = "brasilapi"
+rpm = 40
+ativo = true
+
+[[provedores]]
+nome = "minhareceita"
+rpm = 30
+ativo = true
+
+[[provedores]]
+nome = "cnpja"
+rpm = 5
+ativo = true
+
+[[provedores]]
+nome = "cnpjws"
+rpm = 3
+ativo = true
+
+[[provedores]]
+nome = "receitaws"
+rpm = 3
+ativo = true
