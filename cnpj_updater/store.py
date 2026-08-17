@@ -46,6 +46,26 @@ def _agora() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
 
+def _clausula_fila_email(situacoes: list[str]) -> str:
+    """Predicado unico da fila da fase 2.
+
+    Usado para montar a fila e para conta-la no resumo. Duplicar essa
+    condicao faria o numero relatado divergir do que o worker consulta de
+    fato — foi o que aconteceu quando o resumo ignorava a situacao cadastral
+    e anunciava 2068 pendentes numa fila real de 1471.
+
+    Parametros na ordem: (*situacoes, max_tentativas).
+    """
+    marcadores = ",".join("?" for _ in situacoes) or "''"
+    return (
+        " status = 'ok'"
+        " AND status_email IN ('pendente','erro')"
+        " AND (email IS NULL OR email = '')"
+        f" AND situacao_cadastral IN ({marcadores})"
+        " AND tentativas_email < ?"
+    )
+
+
 class Store:
     def __init__(self, caminho: str | Path):
         caminho = Path(caminho)
@@ -94,16 +114,10 @@ class Store:
     def pendentes_email(self, max_tentativas: int, situacoes: list[str],
                         limite: int = 500) -> list[str]:
         """Fila da fase 2: so quem ja tem dados, esta sem e-mail e bate a situacao."""
-        marcadores = ",".join("?" for _ in situacoes) or "''"
         rows = self.con.execute(
-            f"SELECT cnpj FROM empresas "
-            f" WHERE status = 'ok' "
-            f"   AND status_email IN ('pendente','erro') "
-            f"   AND tentativas_email < ? "
-            f"   AND (email IS NULL OR email = '') "
-            f"   AND situacao_cadastral IN ({marcadores}) "
-            f" ORDER BY tentativas_email, cnpj LIMIT ?",
-            (max_tentativas, *situacoes, limite),
+            f"SELECT cnpj FROM empresas WHERE {_clausula_fila_email(situacoes)}"
+            " ORDER BY tentativas_email, cnpj LIMIT ?",
+            (*situacoes, max_tentativas, limite),
         ).fetchall()
         return [r["cnpj"] for r in rows]
 
@@ -167,7 +181,8 @@ class Store:
         rows = self.con.execute("SELECT * FROM empresas").fetchall()
         return {r["cnpj"]: r for r in rows}
 
-    def resumo(self) -> dict[str, int]:
+    def resumo(self, situacoes_email: list[str] | None = None,
+               max_tentativas: int = 4) -> dict[str, int]:
         total = self.con.execute("SELECT COUNT(*) c FROM empresas").fetchone()["c"]
         por_status = {
             r["status"]: r["c"]
@@ -187,11 +202,18 @@ class Store:
         ativas = self.con.execute(
             "SELECT COUNT(*) c FROM empresas WHERE situacao_cadastral = 'Ativa'"
         ).fetchone()["c"]
+        # Conta a fila real da fase 2, com o mesmo predicado que a monta.
+        situacoes = situacoes_email or []
         pend_email = self.con.execute(
-            "SELECT COUNT(*) c FROM empresas WHERE status='ok'"
-            " AND status_email IN ('pendente','erro')"
+            f"SELECT COUNT(*) c FROM empresas"
+            f" WHERE {_clausula_fila_email(situacoes)}",
+            (*situacoes, max_tentativas),
+        ).fetchone()["c"]
+        sem_email = self.con.execute(
+            "SELECT COUNT(*) c FROM empresas WHERE status_email='vazio'"
         ).fetchone()["c"]
         return {
+            "email_sem_cadastro": sem_email,
             "total": total,
             # Base dos percentuais: CNPJ invalido na planilha nunca vai ser
             # consultado, entao contá-lo no denominador so mascara a cobertura.

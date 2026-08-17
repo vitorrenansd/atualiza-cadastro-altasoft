@@ -76,7 +76,7 @@ def cmd_rodar(args) -> int:
     cfg, store = _abrir(args)
     if args.sem_email:
         cfg.buscar_email = False
-    resumo = store.resumo()
+    resumo = store.resumo(cfg.email_somente_situacoes, cfg.max_tentativas)
     if resumo["total"] == 0:
         print("Fila vazia. Rode 'importar' primeiro.")
         store.fechar()
@@ -86,7 +86,8 @@ def cmd_rodar(args) -> int:
         Worker(cfg, store).rodar()
     except KeyboardInterrupt:
         print("\n  interrompido pelo usuario")
-    _imprimir_resumo(store.resumo())
+    _imprimir_resumo(store.resumo(cfg.email_somente_situacoes,
+                                  cfg.max_tentativas))
     store.fechar()
     return 0
 
@@ -110,7 +111,8 @@ def cmd_exportar(args) -> int:
 
 def cmd_status(args) -> int:
     cfg, store = _abrir(args)
-    _imprimir_resumo(store.resumo())
+    _imprimir_resumo(store.resumo(cfg.email_somente_situacoes,
+                                  cfg.max_tentativas))
     store.fechar()
     return 0
 
@@ -128,8 +130,14 @@ def _imprimir_resumo(r: dict) -> None:
           f"({r['com_telefone']/base:.0%})")
     print(f"  {'com e-mail':16s} {r['com_email']:6d} ({r['com_email']/base:.0%})")
     print(f"  {'ATIVAS':16s} {r['ativas']:6d} ({r['ativas']/base:.0%})")
+    if r.get("email_sem_cadastro"):
+        print(f"  {'sem e-mail na Receita':16s} {r['email_sem_cadastro']:6d}"
+              f" (ja consultado, nao tem)")
     if r.get("email_pendente"):
-        print(f"  e-mail ainda por consultar: {r['email_pendente']}")
+        # Fila real da fase 2, ja descontando quem nao sera consultado.
+        horas = r["email_pendente"] / 11 / 60
+        print(f"  fase 2 pendente: {r['email_pendente']} Ativas sem e-mail"
+              f" (~{horas:.1f} h a 11/min)")
 
 
 def main(argv=None) -> int:
