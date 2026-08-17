@@ -82,9 +82,22 @@ def _digitos(valor) -> str:
     return re.sub(r"\D", "", str(valor or ""))
 
 
+def _limpar_email(valor) -> str:
+    """Normaliza e-mail para comparacao.
+
+    A base grava texto com apostrofo a esquerda (`'ADM@X.COM`) e usa um
+    apostrofo solitario como celula vazia. Sem limpar isso, `'adm@x.com`
+    nunca bate com `adm@x.com` e a celula "vazia" conta como preenchida —
+    foi o que zerou os vereditos `igual` e `so na Receita`.
+    """
+    texto = str(valor or "").strip().strip("'\"").strip().casefold()
+    # Sem arroba nao e' e-mail: sobra de digitacao ou marcador de vazio.
+    return texto if "@" in texto else ""
+
+
 def _veredito_email(atual: str, receita: str) -> str:
-    a = (atual or "").strip().casefold()
-    r = (receita or "").strip().casefold()
+    a = _limpar_email(atual)
+    r = _limpar_email(receita)
     if not a and not r:
         return "ambos vazios"
     if not r:
@@ -102,7 +115,7 @@ def _veredito_email_com_status(atual: str, receita: str, status_email: str) -> s
     Receita nao tem e-mail — conclusao errada, porque o campo nunca foi
     consultado. So a fase 2 autoriza esse veredito.
     """
-    if status_email == "pendente" and not (receita or "").strip():
+    if status_email == "pendente" and not _limpar_email(receita):
         return "não consultado"
     return _veredito_email(atual, receita)
 

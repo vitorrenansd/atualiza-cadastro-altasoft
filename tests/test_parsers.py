@@ -200,6 +200,17 @@ class TestMontarValores(unittest.TestCase):
 
 
 class TestComparacaoContato(unittest.TestCase):
+    def test_email_ignora_apostrofo_da_planilha(self):
+        from cnpj_updater.excel_io import _veredito_email as v
+        # A base grava texto com apostrofo a esquerda. Comparar sem limpar
+        # zerava os vereditos 'igual' e 'so na Receita'.
+        self.assertEqual(v("'ADM@X.COM", "adm@x.com"), "igual")
+        # Apostrofo solitario e' celula vazia, nao e-mail preenchido.
+        self.assertEqual(v("'", "adm@x.com"), "só na Receita")
+        self.assertEqual(v("'", ""), "ambos vazios")
+        # Texto sem arroba nao e' e-mail.
+        self.assertEqual(v("nao tem", "adm@x.com"), "só na Receita")
+
     def test_email(self):
         from cnpj_updater.excel_io import _veredito_email as v
         self.assertEqual(v("A@X.COM", "a@x.com"), "igual")
