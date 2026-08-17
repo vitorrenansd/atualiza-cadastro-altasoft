@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Planilhas de cliente e banco de consultas nao vao para o repositorio:
+# contem dados cadastrais reais.
+dados/
+*.xlsx
+*.xlsm
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+
+# Config local, caso tenha caminhos da maquina.
+config.local.toml
